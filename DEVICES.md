@@ -126,7 +126,7 @@ A slider at the top left of the interface (new and classic) switches between **R
 transmitter is independent of the receivers, like in SDRangel: it has its **own radio choice** (any radio that can transmit) and its own mode, so a receiver
 keeps receiving while you transmit. Example: a HackRF Pro transmits while an RTL-SDR v4 is a receiver and decodes it. Switching the view starts and stops nothing.
 
-A radio is never used by both a receiver and the transmitter unless it is genuinely full duplex (`DeviceInfo::txFullDuplex`; none is today). The claim is
+A radio is never used by both a receiver and the transmitter unless it is genuinely full duplex (`DeviceInfo::txFullDuplex`; the native PlutoSDR path). The claim is
 made through `device_claims.h` (the transmitter holds its radio as `kTxClaimOwner`): a radio a receiver has open is marked "in use by RX n" in the TX radio list
 and cannot be started, with a sentence saying it cannot receive and transmit at the same time; the receivers' radio lists mark the transmitter's radio in the
 same way. Nothing is stopped silently.
@@ -147,11 +147,23 @@ same USB id 1d50:6089 (the code lists it in `kPids`, and `boardName(5)` reads "H
 | Radio | Path | Notes |
 |---|---|---|
 | HackRF One / Pro (OnAir's own USB driver) | `UsbHackrfTx` | 2 to 20 Msps, TX VGA 0 to 47 dB, the +14 dB amplifier is a switch |
-| PlutoSDR (libiio) | `PlutoTx` | 2.1 Msps and up, TX attenuation -89.75 to 0 dB |
+| PlutoSDR (libiio) | `PlutoTx` | 2.1 Msps and up, TX attenuation -89.75 to 0 dB; simultaneous RX/TX under the conditions below |
 | Any SoapySDR radio with a TX channel (LimeSDR, bladeRF, USRP, ...) | `SoapyTx` (`writeStream`) | known after the radio has been opened once, or by its driver name |
 
 Every other radio (RTL-SDR, Airspy, RX888, SDRplay, Fobos, ... receive-only; the native LimeSDR / bladeRF / USRP drivers are receive-only, use their SoapySDR module to transmit) reports `canTransmit = false`.
-No radio is marked full duplex here, so the transmitter and a receiver always need two different radios (a radio is shared only through the claim above).
+**PlutoSDR simultaneous RX/TX (native libiio 0.x path):** select the same radio entry for the receiver and transmitter. They share one libiio context and the
+AD936x clock. The second direction uses the running direction's sample rate when it is high enough; requesting a higher rate is refused before changing the
+clock. Stop the other direction to raise the rate. RX and TX keep independent frequencies and gains, and stopping one leaves the other running. The shared
+reference clock is restored only when the last direction closes; while TX runs, RX ppm adjustments use the RX LO instead of changing that clock.
+
+The firmware must report FDD mode. Simultaneous operation currently requires CS16 and no low-rate RX FIR: a 2.048 Msps DAB receiver or Tezuka CS8 receiver
+can still run alone, but cannot share with TX. RX and TX must use the same device entry/URI; opening one physical radio through different IP aliases or through
+USB and IP at the same time is not coordinated. This does not add full duplex to the SoapySDR path or sample-synchronous RX/TX timestamps. The host link and
+radio must sustain both sample streams; the single-direction USB rate above is not a full-duplex throughput guarantee.
+
+`pluto_duplex` tests both startup orders, shared rates/ppm, independent shutdown, concurrent startup/shutdown, configuration conflicts and failures against a
+fake libiio, on Windows as well as POSIX. Real-radio full-duplex operation still needs validation; automated tests do not establish RF performance.
+Other radios still need separate devices for RX and TX.
 
 **Modes that can transmit** (the table is `txModes()` in `core/src/tx.cpp`; deny-list, not allow-list). Every engine mode that has a generator is offered except pointless / jammer / impersonation cases. No frequency limit is applied here. Empty payload fields fall back to the demo signal; the Transmit panel has a real payload UI on every row (callsign, grid, text, IDs, file, microphone as that mode fits).
 

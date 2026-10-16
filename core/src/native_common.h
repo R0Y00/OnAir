@@ -437,16 +437,19 @@ public:
     }
     bool retune(const TuneSettings& s, std::string& err) override {
         std::lock_guard<std::mutex> lk(cfg_);
-        last_ = s;   // a radio that comes back after an unplug is opened with these
-        if (!open_) return true;   // the radio is away: it gets the new settings when it is back
+        if (!open_) { last_ = s; return true; }   // the radio is away: it gets the new settings when it is back
+        if (!canRetune(s, err)) return false;   // refuse shared-resource conflicts before interrupting a working stream
         const bool rateChange = s.sampleRate > 0 && std::fabs(s.sampleRate - requested_) > 1.0;
         if (rateChange && restartForRate()) {   // most radios change their sample rate only while not streaming
             stopStream();
             const bool ok = open_ ? configure(s, err, false) : true;
             startStream();
+            if (ok) last_ = s;
             return ok;
         }
-        return configure(s, err, true);
+        const bool ok = configure(s, err, true);
+        if (ok) last_ = s;
+        return ok;
     }
     double sampleRate() const override { return rate_; }
     bool realtimeHardware() const override { return true; }
@@ -462,6 +465,7 @@ protected:
     virtual void streamLoop() = 0;            // runs until run_ is false (or the stream fails: then the radio is opened again)
     virtual void interrupt() {}              // makes a blocking read in streamLoop() return
     virtual bool restartForRate() const { return true; }
+    virtual bool canRetune(const TuneSettings&, std::string&) { return true; }
     // whether a failed openDevice() is worth trying again (start() only; after an unplug every attempt is)
     virtual bool openRetryable(const std::string& err) const {
         if (openFailure_ == OpenFailure::Retry) return true;
