@@ -229,7 +229,12 @@ static void testHttp(FakeHost& h, RemoteApiServer& srv, int port) {
     std::vector<sock_t> idle;
     for (int i = 0; i < 16; i++) idle.push_back(dial("127.0.0.1", port));
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    r = http("127.0.0.1", port, withPort(get("/api/v1/status"), port), 2000);
+    // The cap rejects on accept, before reading a request. Sending bytes to that
+    // closing socket can reset it on Windows and discard the already-sent 503.
+    const sock_t overflow = dial("127.0.0.1", port);
+    CHECK(overflow != kBadSock, "connect the 17th client");
+    r = parseResp(readAll(overflow, 2000));
+    if (overflow != kBadSock) sockClose(overflow);
     CHECK(r.status == 503, "17th connection %d", r.status);
     // a silent client is cut off at 5 s with 408
     const std::string slow = readAll(idle[0], 7000);

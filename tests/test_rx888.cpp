@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <filesystem>
 #include <map>
 #include <set>
 #include <thread>
@@ -192,7 +193,7 @@ static std::vector<uint8_t> makeImage(uint32_t words, uint32_t addr, uint32_t en
     return v;
 }
 static std::string writeTemp(const std::vector<uint8_t>& v, const char* name) {
-    const std::string p = std::string("/tmp/") + name + "_" + std::to_string(getpid()) + ".img";
+    const std::string p = (std::filesystem::temp_directory_path() / (std::string(name) + "_" + std::to_string(getpid()) + ".img")).string();
     std::ofstream(p, std::ios::binary).write(reinterpret_cast<const char*>(v.data()), (std::streamsize)v.size());
     return p;
 }

@@ -6,6 +6,7 @@
 #include "wb_test.h"
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <thread>
 using namespace dect2::wb;
 using dect2::cf32;
@@ -35,7 +36,7 @@ static double goertzel(const std::vector<cf32>& a, double f, double rate) {
 }
 
 int main() {
-    const std::string dir = "/tmp/wb_source_test_";
+    const std::string dir = (std::filesystem::temp_directory_path() / "wb_source_test_").string();
     const std::vector<cf32> x = ramp(5000);
     std::string err;
     {   // raw files

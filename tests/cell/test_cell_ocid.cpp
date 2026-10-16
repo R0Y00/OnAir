@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 #include <thread>
-#include <unistd.h>
+#include <filesystem>
 using namespace dect2;
 static int fails = 0;
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL line %d: ", __LINE__); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
@@ -32,14 +32,15 @@ int main() {
     c.put(k, r, 1000); c.put(k2, nf, 1000);
     OcidResult bad; bad.status = OcidStatus::BadKey; c.put(k3, bad, 1000);
     CHECK(c.size() == 2, "errors not stored");
-    char path[] = "/tmp/ocid_testXXXXXX"; const int fd = mkstemp(path); close(fd);
+    const auto path = (std::filesystem::temp_directory_path() /
+        ("ocid_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
     CHECK(c.save(path), "save");
     OcidCache d; CHECK(d.load(path) && d.size() == 2, "load");
     const OcidEntry* e = d.get(k, 1000 + 400 * 86400);
     CHECK(e && e->r.status == OcidStatus::Found && std::fabs(e->r.lat - 54.6872) < 1e-5 && e->r.samples == 42, "found kept");
     CHECK(d.get(k2, 1000 + 3600) && d.get(k2, 1000 + 3600)->r.status == OcidStatus::NotFound, "not found within a day");
     CHECK(!d.get(k2, 1000 + 86400), "not found expires");
-    unlink(path);
+    std::filesystem::remove(path);
 
     OcidRateLimiter rl(1.0);
     CHECK(rl.tryTake(10.0) && !rl.tryTake(10.5) && std::fabs(rl.waitFor(10.5) - 0.5) < 1e-9 && rl.tryTake(11.0), "rate limiter");

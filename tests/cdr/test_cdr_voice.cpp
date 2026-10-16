@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -220,7 +221,7 @@ int main(int argc, char** argv) {
     CHECK(tx.ok(), "transmitter");
     dect2::CdrReceiver rx;
     rx.configure(dect2::cdr::kFs);
-    const char* path = "/tmp/cdr_voice_es.dra";
+    const auto path = (std::filesystem::temp_directory_path() / "cdr_voice_es.dra").string();
     CHECK(rx.saveAudioStream(cfg.serviceA, path), "save stream");
     std::vector<dect2::cf32> sf;
     const int subframes = 28;                       // 4.5 s: lock, then several copies of the phrase
@@ -249,8 +250,9 @@ int main(int argc, char** argv) {
         std::vector<int16_t> one = back;
         if (lag >= 0 && (size_t)lag + pcm.size() <= back.size())
             one.assign(back.begin() + lag, back.begin() + lag + (std::ptrdiff_t)pcm.size());
-        writeWav("/tmp/cdr_voice_out.wav", one);
-        printf("wrote /tmp/cdr_voice_out.wav (%.2f s)\n", one.size() / 8000.0);
+        const auto out = (std::filesystem::temp_directory_path() / "cdr_voice_out.wav").string();
+        writeWav(out.c_str(), one);
+        printf("wrote %s (%.2f s)\n", out.c_str(), one.size() / 8000.0);
     }
     printf("%s\n", fails ? "FAILED" : "ok");
     return fails ? 1 : 0;

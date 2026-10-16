@@ -8,6 +8,7 @@ extern "C" {
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <filesystem>
 
 static int fails = 0;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
@@ -79,7 +80,8 @@ int main() {
     CHECK(near(displayAspect(1920, 1088, 1, 1), 1920.0 / 1088));  // coded height: callers pass the cropped size
     CHECK(near(displayAspect(0, 0, 4, 3), 1.0));
     int w = 0, h = 0;
-    const std::string p1 = "/tmp/dect2_aspect_a.ts", p2 = "/tmp/dect2_aspect_b.ts";
+    const auto temp = std::filesystem::temp_directory_path();
+    const std::string p1 = (temp / "dect2_aspect_a.ts").string(), p2 = (temp / "dect2_aspect_b.ts").string();
     if (makeClip(p1, 720, 576, AVRational{64, 45})) {
         const double a = decodedAspect(p1, w, h);
         CHECK(w == 720 && h == 576); CHECK(std::fabs(a - 16.0 / 9) < 0.02);

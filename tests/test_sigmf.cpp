@@ -47,7 +47,7 @@ int main() {
     r.stop();
     CHECK(fs::exists(dir / "cap.sigmf-meta"), "meta file");
     CHECK(fs::exists(dir / "cap.sigmf-data") && fs::file_size(dir / "cap.sigmf-data") == 10000, "data file under the SigMF name");
-    std::ifstream f(dir / "cap.sigmf-meta"); std::stringstream ss; ss << f.rdbuf();
+    std::ifstream f(dir / "cap.sigmf-meta"); std::stringstream ss; ss << f.rdbuf(); f.close();
     CHECK(has(ss.str().c_str(), "\"core:frequency\": 433920000.0") && has(ss.str(), "\"core:sample_count\": 5000") && has(ss.str(), "\"core:dataset\": \"cap.cs8\""), "recorded meta");
     IqRecorder r2;   // off: no metadata
     CHECK(r2.start((dir / "plain.cs8").string(), FileFormat::CS8, 2e6, err), "start plain");
