@@ -4,7 +4,11 @@
 #include "dect2/channelizer.h"
 #include "dect2/multitv.h"
 #include "multitv_testkit.h"
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/resource.h>
+#endif
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -15,8 +19,18 @@ static int fails = 0;
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL line %d: ", __LINE__); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
 static double cpuSecs() {
-    rusage r; getrusage(RUSAGE_SELF, &r);
+#ifdef _WIN32
+    FILETIME created, exited, kernel, user;
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return 0;
+    auto secs = [](const FILETIME& t) {
+        return (double)(((unsigned long long)t.dwHighDateTime << 32) | t.dwLowDateTime) * 1e-7;
+    };
+    return secs(kernel) + secs(user);
+#else
+    rusage r{};
+    if (getrusage(RUSAGE_SELF, &r) != 0) return 0;
     return r.ru_utime.tv_sec + r.ru_stime.tv_sec + 1e-6 * (r.ru_utime.tv_usec + r.ru_stime.tv_usec);
+#endif
 }
 
 // a pure tone through the channeliser: shifted to baseband, and the neighbouring channel's tone rejected
