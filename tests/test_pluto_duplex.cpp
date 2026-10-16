@@ -96,6 +96,14 @@ int main(int argc, char** argv) {
     bad = r; bad.sampleRate = 2.048e6;
     CHECK(!rx->retune(bad, err), "FIR cannot be loaded during TX");
     receive(ring); send();
+    // A transient RX error must reconnect with the last accepted settings while TX stays open.
+    const double rxCloses = st("pluto.rxBufferCloses"), rxOpens = st("pluto.rxBufferOpens");
+    set("pluto.rxFail", 1);
+    CHECK(waitFor([&] { return st("pluto.rxBufferCloses") > rxCloses; }), "RX releases failed buffer");
+    send(); set("pluto.rxFail", 0);
+    CHECK(waitFor([&] { return st("pluto.rxBufferOpens") > rxOpens; }, 3000), "RX reconnects during TX after rejected retunes");
+    CHECK(st("pluto.contextOpens") == opens && st("pluto.rateWrites") == rates, "RX reconnect preserves TX context and clock");
+    receive(ring); send();
     // A duplicate direction must not close or disable the original's resources.
     auto extraRx = native::makePluto(d); auto extraTx = native::makePlutoTx(d);
     CHECK(!extraRx->start(r, ring, err), "second RX refused");

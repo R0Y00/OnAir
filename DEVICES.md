@@ -160,8 +160,9 @@ The firmware must report FDD mode. Simultaneous operation currently requires CS1
 can still run alone, but cannot share with TX. RX and TX must use the same device entry/URI; opening one physical radio through different IP aliases or through
 USB and IP at the same time is not coordinated. This does not add full duplex to the SoapySDR path or sample-synchronous RX/TX timestamps. The host link and
 radio must sustain both sample streams; the single-direction USB rate above is not a full-duplex throughput guarantee.
+A physical disconnect may invalidate the shared context: stop TX before expecting RX to recover from that loss. A transient RX buffer error can reconnect independently while the context remains usable.
 
-`pluto_duplex` tests both startup orders, shared rates/ppm, independent shutdown, concurrent startup/shutdown, configuration conflicts and failures against a
+`pluto_duplex` tests both startup orders, shared rates/ppm, independent shutdown, concurrent startup/shutdown, configuration conflicts, failures and RX reconnect with TX active against a
 fake libiio, on Windows as well as POSIX. Real-radio full-duplex operation still needs validation; automated tests do not establish RF performance.
 Other radios still need separate devices for RX and TX.
 

@@ -238,7 +238,7 @@ EXPORT void iio_buffer_destroy(void* b) {
 }
 EXPORT long long iio_buffer_refill(void* b) {
     auto* x = (iio_buf*)b;
-    if (x->cancel || fake_state("pluto.gone") == 1) return -1;
+    if (x->cancel || fake_state("pluto.gone") == 1 || fake_state("pluto.rxFail") == 1) return -1;
     pace(); count("pluto.rxRefills");
     return (long long)(x->d.size() / 2 * 4);
 }
