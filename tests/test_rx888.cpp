@@ -17,6 +17,11 @@
 #include <thread>
 #include <unistd.h>
 
+#ifdef _WIN32
+#define setenv(k, v, o) _putenv_s(k, v)
+#define unsetenv(k) _putenv_s(k, "")
+#endif
+
 using namespace dect2;
 using namespace dect2::native;
 
