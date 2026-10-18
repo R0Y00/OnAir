@@ -156,8 +156,10 @@ AD936x clock. The second direction uses the running direction's sample rate when
 clock. Stop the other direction to raise the rate. RX and TX keep independent frequencies and gains, and stopping one leaves the other running. The shared
 reference clock is restored only when the last direction closes; while TX runs, RX ppm adjustments use the RX LO instead of changing that clock.
 
-The firmware must report FDD mode. Simultaneous operation currently requires CS16 and no low-rate RX FIR: a 2.048 Msps DAB receiver or Tezuka CS8 receiver
-can still run alone, but cannot share with TX. RX and TX must use the same device entry/URI; opening one physical radio through different IP aliases or through
+The firmware must report FDD mode and simultaneous operation requires CS16. Low-rate RX requests such as 2.048 Msps DAB use at least 2.1 Msps in hardware
+by default (or the running TX rate); the receiver resamples in software. This lets either direction start first without loading a shared low-rate FIR.
+The optional **Low-rate FIR (RX only)** setting restores the exact 2.048 Msps hardware rate for receive-only operation. Disable it and restart RX before
+starting TX; a Tezuka CS8 receiver also needs CS16 selected before TX can join. RX and TX must use the same device entry/URI; opening one physical radio through different IP aliases or through
 USB and IP at the same time is not coordinated. This does not add full duplex to the SoapySDR path or sample-synchronous RX/TX timestamps. The host link and
 radio must sustain both sample streams; the single-direction USB rate above is not a full-duplex throughput guarantee.
 A physical disconnect may invalidate the shared context: stop TX before expecting RX to recover from that loss. A transient RX buffer error can reconnect independently while the context remains usable.

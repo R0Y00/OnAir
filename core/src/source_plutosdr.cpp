@@ -300,8 +300,12 @@ protected:
     bool canRetune(const TuneSettings& s, std::string& err) override {
         std::lock_guard<std::recursive_mutex> lk(gPlutoMu);
         if (!radio_ || !radio_->tx) return true;
-        if (wantsFir(s.sampleRate) || radioOption(s, "iqformat", "cs16") == "cs8") {
-            err = "PlutoSDR: simultaneous RX/TX requires CS16 without the low-rate FIR";
+        if (tezuka_ && radioOption(s, "iqformat", "cs16") == "cs8") {
+            err = "PlutoSDR: simultaneous RX/TX requires CS16; select CS16 in IQ format";
+            return false;
+        }
+        if (wantsFir(s.sampleRate) && radioFlag(s, "lowratefir")) {
+            err = "PlutoSDR: disable Low-rate FIR (RX only) to receive while TX is running";
             return false;
         }
         const double want = std::min(std::max(s.sampleRate > 0 ? s.sampleRate : 10e6, 2.1e6), 61.44e6);
@@ -323,7 +327,7 @@ protected:
             double want = std::min(std::max(s.sampleRate > 0 ? s.sampleRate : 10e6, 2.1e6), 61.44e6);
             if (radio_->tx) want = radio_->txRate;
             if (firOn_) setFir(false);   // a rate chosen now may not be one for the FIR
-            if (wantsFir(s.sampleRate)) {
+            if (wantsFir(s.sampleRate) && radioFlag(s, "lowratefir")) {
                 // 2.048 Msps: the converter at twice that, the FIR (loaded and switched on there) halves it
                 if (setFirRate(s.sampleRate)) want = s.sampleRate;
                 else { fprintf(stderr, "PlutoSDR: the radio did not accept the decimating FIR: running at 2.1 Msps, resampled in software\n"); fflush(stderr); }
@@ -530,8 +534,13 @@ public:
         if (!txCh_ || !lo_ || !i_ || !q_) { err = "PlutoSDR: the transmit channels were not found"; shut(); return false; }
         if (t.sampleRate < 2.083e6) { err = "PlutoSDR: the converter runs from 2.083 Msps up; " + std::to_string(t.sampleRate / 1e6) + " Msps is below that"; shut(); return false; }
         if (radio_->rx) {
-            if (radio_->rxFir || radio_->rxCs8) {
-                err = "PlutoSDR: simultaneous RX/TX requires CS16 without the low-rate FIR"; shut(); return false;
+            if (radio_->rxFir) {
+                err = "PlutoSDR: RX is using the low-rate FIR; disable Low-rate FIR (RX only) and restart RX before starting TX";
+                shut(); return false;
+            }
+            if (radio_->rxCs8) {
+                err = "PlutoSDR: RX is using CS8; select CS16 in IQ format and restart RX before starting TX";
+                shut(); return false;
             }
             if (!duplexRate(t.sampleRate, radio_->rxRate, err) || !radio_->duplex(err)) { shut(); return false; }
         } else if (const int r = iio().channel_attr_write_longlong(txCh_, "sampling_frequency", (long long)std::llround(t.sampleRate)); r != 0) {
@@ -645,7 +654,7 @@ DeviceInfo plutoEntry(const std::string& uri, const std::string& desc, bool prob
     d.name = "PlutoSDR " + (desc.empty() ? uri : "(" + uri + ")") + (probe ? " (native, experimental)" : " (network)");
     // over USB 2 a Pluto keeps up with about 4 Msps (3 over its USB-gadget network address); over a real network the converter's full rate is offered
     // a mode that needs more still gets it (linkRateFor: some lost samples beat no decode, e.g. DVB-T/T2 at 64/7 Msps)
-    d.maxRateHz = 61.44e6; d.minRateHz = kFirMinRate;   // 2.048 Msps through the FIR; a converter rate from 2.083 Msps up otherwise
+    d.maxRateHz = 61.44e6; d.minRateHz = kFirMinRate;   // 2.048 Msps through the optional RX-only FIR, otherwise at least 2.1 Msps in hardware
     d.steadyRateHz = plutoLinkRate(uri);
     d.gainMinDb = 0; d.gainMaxDb = 73;
     d.minFreqHz = 70e6; d.maxFreqHz = 6e9;
@@ -656,6 +665,9 @@ DeviceInfo plutoEntry(const std::string& uri, const std::string& desc, bool prob
     d.txGainMinDb = -89.75; d.txGainMaxDb = 0;
     d.txGainNote = "the AD9361's TX attenuation shown as a gain: -89.75 dB (least power) to 0 dB (most)";
     d.settings = {ppmSetting(0.01),
+                  boolSetting("lowratefir", "Low-rate FIR (RX only)",
+                              "Receive 2.048 Msps directly through the hardware FIR. RX only: disable this to share the radio with TX.\n"
+                              "Off by default: use at least 2.1 Msps (or the running TX rate), with software resampling in the receiver.", false, true),
                   choiceSetting("gainmode", "Gain mode",
                                 "Manual: the gain slider (and OnAir's AGC) set the AD9361's gain (the default).\n"
                                 "Slow / fast attack: the AD9361's own AGC sets it (fast attack for bursts); the gain slider then has no effect.",

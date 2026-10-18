@@ -53,6 +53,8 @@ int main(int argc, char** argv) {
     set("pluto.singleContext", 1);   // a second independent USB context must fail
     const auto d = native::plutoDevice("ip:10.0.0.7");
     CHECK(d.canTransmit && d.txFullDuplex, "native Pluto advertises simultaneous RX/TX");
+    const auto firOption = std::find_if(d.settings.begin(), d.settings.end(), [](const RadioSetting& v) { return v.key == "lowratefir"; });
+    CHECK(firOption != d.settings.end() && firOption->def == "0" && firOption->restart, "RX-only FIR is opt-in and restarts RX");
     auto rx = native::makePluto(d);
     auto tx = native::makePlutoTx(d);
     CHECK(tx->fullDuplex(), "sink advertises simultaneous RX/TX");
@@ -94,7 +96,13 @@ int main(int argc, char** argv) {
     CHECK(st("pluto.rxBufferOpens") == buffers && st("pluto.rateWrites") == rates, "refusal leaves RX buffer and shared rate alone");
     receive(ring); send();
     bad = r; bad.sampleRate = 2.048e6;
-    CHECK(!rx->retune(bad, err), "FIR cannot be loaded during TX");
+    const double firWrites = st("pluto.firWrites");
+    CHECK(rx->retune(bad, err), "low-rate RX uses TX's clock: %s", err.c_str());
+    CHECK(rx->sampleRate() == 4e6 && st("pluto.firWrites") == firWrites && st("pluto.rateWrites") == rates,
+          "low-rate request never loads a FIR or changes TX's clock");
+    bad.radio["lowratefir"] = "1";
+    CHECK(!rx->retune(bad, err) && err.find("disable Low-rate FIR") != std::string::npos,
+          "explicit RX-only FIR is refused with an actionable error");
     receive(ring); send();
     // A transient RX error must reconnect with the last accepted settings while TX stays open.
     const double rxCloses = st("pluto.rxBufferCloses"), rxOpens = st("pluto.rxBufferOpens");
@@ -121,11 +129,30 @@ int main(int argc, char** argv) {
     CHECK(st("pluto.phy.xo_correction") == 40000000, "last close restores clock"); noLeaks();
     // TX first: RX can adopt its higher clock without writing shared configuration.
     t.sampleRate = 4e6; CHECK(tx->open(t, err), "TX first: %s", err.c_str());
-    r.sampleRate = 2.1e6; r.radio["ppm"] = "10";
+    r.sampleRate = 2.048e6; r.radio["ppm"] = "10";
     const double txRates = st("pluto.rateWrites"), txXo = st("pluto.xoWrites");
     CHECK(rx->start(r, ring, err), "RX joins TX: %s", err.c_str());
     CHECK(rx->sampleRate() == 4e6 && st("pluto.rateWrites") == txRates && st("pluto.xoWrites") == txXo, "RX adopts TX rate and preserves clock");
     receive(ring); send(); rx->stop(); send(); tx->close(); noLeaks();
+    // The default low-rate RX must also allow TX to join, without a FIR or a clock change.
+    t.sampleRate = 2.1e6; r.sampleRate = 2.048e6;
+    const double beforeFir = st("pluto.firWrites");
+    CHECK(rx->start(r, ring, err), "default low-rate RX starts: %s", err.c_str());
+    CHECK(rx->sampleRate() == 2.1e6 && st("pluto.firWrites") == beforeFir, "RX defaults to a duplex-compatible clock");
+    const double beforeJoin = st("pluto.rateWrites");
+    CHECK(tx->open(t, err), "TX joins default 2.048 Msps RX: %s", err.c_str());
+    CHECK(tx->sampleRate() == 2.1e6 && st("pluto.rateWrites") == beforeJoin, "TX preserves the RX clock");
+    receive(ring); send(); rx->stop(); tx->close(); noLeaks();
+    // Reproduce the reported startup failure with TX already running at the minimum rate.
+    CHECK(tx->open(t, err), "minimum-rate TX starts");
+    r.radio["lowratefir"] = "1";
+    CHECK(!rx->start(r, ring, err) && err.find("disable Low-rate FIR") != std::string::npos,
+          "explicit RX-only FIR cannot join TX");
+    send(); r.radio.erase("lowratefir");
+    CHECK(rx->start(r, ring, err), "2.048 Msps RX joins 2.1 Msps TX: %s", err.c_str());
+    CHECK(rx->sampleRate() == 2.1e6 && st("pluto.firWrites") == beforeFir, "RX uses the minimum TX clock without a FIR");
+    receive(ring); send(); rx->stop(); tx->close(); noLeaks();
+    t.sampleRate = 4e6;
     // Startup failures release only the failing direction, and a subsequent start works.
     r.sampleRate = 4e6; CHECK(rx->start(r, ring, err), "RX for failed TX");
     for (const char* fault : {"pluto.failTxBuffer", "pluto.failTxFrequency", "pluto.tdd", "pluto.ensmUnreadable"}) {
@@ -142,14 +169,22 @@ int main(int argc, char** argv) {
     bad = r; bad.sampleRate = 8e6; CHECK(!rx->start(bad, ring, err), "RX cannot raise active TX rate"); send();
     CHECK(rx->start(r, ring, err), "RX recovers after startup failures"); receive(ring); rx->stop(); tx->close(); noLeaks();
     // Low-rate FIR and Tezuka CS8 remain usable alone, and refuse a TX join.
-    r.sampleRate = 2.048e6; CHECK(rx->start(r, ring, err), "RX-only FIR still works");
+    r.sampleRate = 2.048e6; r.radio["lowratefir"] = "1";
+    CHECK(rx->start(r, ring, err), "explicit RX-only FIR still works");
     CHECK(rx->sampleRate() == 2.048e6 && st("pluto.phy:voltage0.filter_fir_en") == 1, "FIR actually enabled");
     CHECK(!tx->open(t, err) && err.find("low-rate FIR") != std::string::npos, "TX rejects active FIR");
     receive(ring); rx->stop(); noLeaks();
+    r.radio.erase("lowratefir");
     set("pluto.tezuka", 1); r.sampleRate = 4e6; r.radio["iqformat"] = "cs8";
     CHECK(rx->start(r, ring, err), "RX-only CS8 still opens");
     CHECK(!tx->open(t, err) && err.find("CS16") != std::string::npos, "TX rejects active CS8");
-    rx->stop(); set("pluto.tezuka", 0); r.radio.erase("iqformat"); noLeaks();
+    rx->stop(); noLeaks();
+    CHECK(tx->open(t, err), "TX before Tezuka CS8 RX");
+    CHECK(!rx->start(r, ring, err) && err.find("select CS16") != std::string::npos, "CS8 join explains the setting to change");
+    send(); r.radio["iqformat"] = "cs16";
+    CHECK(rx->start(r, ring, err), "CS16 RX joins after correcting IQ format");
+    receive(ring); send(); rx->stop(); tx->close();
+    set("pluto.tezuka", 0); r.radio.erase("iqformat"); noLeaks();
     // Force TX to start between RX retune's preflight and its stopped-stream configure.
     r.sampleRate = t.sampleRate = 4e6;
     CHECK(rx->start(r, ring, err), "RX for retune/start race");
