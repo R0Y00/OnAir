@@ -466,6 +466,10 @@ if(DECT2_BUILD_TESTS)
   target_link_libraries(test_wsprnet PRIVATE dect2core)
   add_test(NAME wsprnet COMMAND test_wsprnet)
 
+  add_executable(test_tx_rate tests/test_tx_rate.cpp)
+  target_link_libraries(test_tx_rate PRIVATE dect2core)
+  add_test(NAME tx_rate COMMAND test_tx_rate)
+
   # The Pluto duplex regression also runs on Windows, without SoapySDR or a radio.
   add_library(native_fakes SHARED tests/native_fakes.cpp)
   set_target_properties(native_fakes PROPERTIES CXX_VISIBILITY_PRESET hidden)

@@ -151,6 +151,10 @@ same USB id 1d50:6089 (the code lists it in `kPids`, and `boardName(5)` reads "H
 | Any SoapySDR radio with a TX channel (LimeSDR, bladeRF, USRP, ...) | `SoapyTx` (`writeStream`) | known after the radio has been opened once, or by its driver name |
 
 Every other radio (RTL-SDR, Airspy, RX888, SDRplay, Fobos, ... receive-only; the native LimeSDR / bladeRF / USRP drivers are receive-only, use their SoapySDR module to transmit) reports `canTransmit = false`.
+**TX sample rate:** the Transmit panel has an **Auto / Manual** selector. Manual exposes **TX Fs (Msps)**: enter the hardware IQ rate (for example 4.000000),
+not the symbol rate. Stop transmitting before changing it. Invalid manual rates are refused rather than clamped; a materially different hardware readback is
+also refused before IQ is sent. For a shared radio, set RX and manual TX to the same hardware rate. Auto keeps the previous mode/device-based selection.
+
 **PlutoSDR simultaneous RX/TX (native libiio 0.x path):** select the same radio entry for the receiver and transmitter. They share one libiio context and the
 AD936x clock. The second direction uses the running direction's sample rate when it is high enough; requesting a higher rate is refused before changing the
 clock. Stop the other direction to raise the rate. RX and TX keep independent frequencies and gains, and stopping one leaves the other running. The shared

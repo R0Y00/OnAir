@@ -1,6 +1,7 @@
 // Native Pluto RX/TX against fake libiio, including the shared clock and handle.
 // This test never opens a real radio. It also runs on Windows without SoapySDR.
 #include "../core/src/native_common.h"
+#include "dect2/tx.h"
 #include <filesystem>
 #include <functional>
 using namespace dect2;
@@ -213,6 +214,25 @@ int main(int argc, char** argv) {
         std::thread rs([&] { rx->stop(); });
         std::thread ts([&] { tx->close(); });
         rs.join(); ts.join(); noLeaks();
+    }
+    // Exercise the same manual-Fs session path used by the TX panel.
+    {
+        r.sampleRate = 4e6;
+        CHECK(rx->start(r, ring, err), "RX for matching manual TX Fs");
+        TxRequest request; request.modeId = "dab"; request.tune = t; request.tune.sampleRate = 4e6;
+        request.loop = false; request.onceSeconds = 0.1;
+        TxSession session;
+        CHECK(session.start(native::makePlutoTx(d), request, {2.1e6, 61.44e6}, err), "manual 4 Msps TX joins 4 Msps RX: %s", err.c_str());
+        CHECK(waitFor([&] { return !session.running(); }, 5000), "manual TX session completes");
+        CHECK(session.stats().finished && session.stats().rateHz == 4e6, "manual Fs drives the generator and sink");
+        session.stop(); receive(ring); rx->stop(); noLeaks();
+        r.sampleRate = 8e6;
+        CHECK(rx->start(r, ring, err), "RX for conflicting manual TX Fs");
+        const double pushed = st("pluto.txPushes"), written = st("pluto.rateWrites");
+        CHECK(!session.start(native::makePlutoTx(d), request, {2.1e6, 61.44e6}, err) && err.find("not the requested TX rate") != std::string::npos,
+              "manual 4 Msps cannot silently become RX's 8 Msps: %s", err.c_str());
+        CHECK(st("pluto.txPushes") == pushed && st("pluto.rateWrites") == written, "manual conflict sends no IQ and preserves RX clock");
+        receive(ring); session.stop(); rx->stop(); noLeaks();
     }
     CHECK(st("pluto.rateWhileDuplex") == 0, "shared rate never written during simultaneous streaming");
     printf("Pluto duplex: %s (%d failures)\n", failures ? "FAILED" : "passed", failures);
